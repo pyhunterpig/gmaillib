@@ -1,8 +1,20 @@
+#coding=utf-8
+from email.mime.text import MIMEText
+from email.MIMEMultipart import MIMEMultipart
+#from email.message import Message
+from email.header import Header
+from email.MIMEBase import MIMEBase
+from email import Encoders
+import mimetypes
+
+import os
 import imaplib
 import smtplib
 import email
 
+
 class message:
+
     def __init__(self, fetched_email):
         accepted_types = ['text/plain']
         parsed = email.message_from_string(fetched_email)
@@ -23,30 +35,80 @@ class message:
         return "<Msg from: {0}>".format(self.sender_addr)
 
     def __str__(self):
-        return "To: {0}\nFrom: {1}\nDate: {2}\nSubject: {3}\n\n{4}".format(self.reciever_addr, self.sender_addr, self.date, self.subject, self.body)
+        return "To: {0}\nFrom: {1}\nDate: {2}\nSubject: {3}\n\n{4}".format(
+               self.reciever_addr,
+               self.sender_addr,
+               self.date,
+               self.subject,
+               self.body)
+
 
 class account:
+
     def __init__(self, username, password):
         self.username = username
         self.password = password
 
         self.sendserver = smtplib.SMTP('smtp.gmail.com:587')
         self.sendserver.starttls()
-        self.sendserver.login(username,password)
+        self.sendserver.login(username, password)
 
         self.recieveserver = imaplib.IMAP4_SSL('imap.gmail.com', 993)
-        self.recieveserver.login(username,password)
+        self.recieveserver.login(username, password)
 
-    def send(self, toaddr, subject='', msg=''):
+    def send(self, toaddr, subject='', content=''):
         fromaddr = self.username
+        msg = MIMEText(content, 'plain', 'utf-8')
+        msg['Content-Type'] = 'text/plain; charset="utf-8"'
+        msg['Subject'] = Header(subject, 'utf-8')
+        msg['From'] = fromaddr
+        msg['To'] = toaddr
+        self.sendserver.sendmail(fromaddr, toaddr.split(','), msg.as_string())
 
-        headers = ["From: " + fromaddr,
-               "Subject: " + subject,
-                   "To: " + toaddr,
-                   "MIME-Version: 1.0",
-                   "Content-Type: text/html"]
-        headers = "\r\n".join(headers)
-        self.sendserver.sendmail(fromaddr, toaddr, headers + "\r\n\r\n" + msg)
+    def sendwithatt(self, toaddr, subject, content, attfiles):
+        fromaddr = self.username
+        msg = MIMEMultipart()
+        body = MIMEText(content, 'plain', 'utf-8')
+        msg['Subject'] = Header(subject, 'utf-8')
+        msg['From'] = fromaddr
+        msg['To'] = toaddr
+        msg.attach(body)
+
+        for attfile in list(attfiles):
+            msg.attach(self.attachment(attfile))
+        self.sendserver.sendmail(fromaddr, toaddr.split(','), msg.as_string())
+
+    def sendHTMLwithatt(self, toaddr, subject, html, attfiles):
+        fromaddr = self.username
+        msg = MIMEMultipart()
+        body = MIMEText(html, 'html', 'utf-8')
+        msg['Subject'] = Header(subject, 'utf-8')
+        msg['From'] = fromaddr
+        msg['To'] = toaddr
+        msg.attach(body)
+
+        for attfile in list(attfiles):
+            msg.attach(self.attachment(attfile))
+        self.sendserver.sendmail(fromaddr, toaddr.split(','), msg.as_string())
+
+    def attachment(self, filename):
+        fd = file(filename, "rb")
+        mimetype, mimeencoding = mimetypes.guess_type(filename)
+        if mimeencoding or (mimetype is None):
+            mimetype = "application/octet-stream"
+        maintype, subtype = mimetype.split("/")
+
+        if maintype == "text":
+            retval = MIMEText(fd.read(), _subtype = subtype)
+        else:
+            retval = MIMEBase(maintype, subtype)
+            retval.set_payload(fd.read())
+            Encoders.encode_base64(retval)
+        retval.add_header("Content-Disposition",
+                          "attachment",
+                          filename=os.path.basename(filename))
+        fd.close()
+        return retval
 
     def recieve(self):
         return
@@ -62,7 +124,7 @@ class account:
 
     def unread(self):
         self.recieveserver.select('Inbox')
-        fetch_list = self.recieveserver.search(None,'UnSeen')[1][0]
+        fetch_list = self.recieveserver.search(None, 'UnSeen')[1][0]
         fetch_list = fetch_list.split(' ')
         if fetch_list == ['']:
             return []
@@ -82,7 +144,9 @@ class account:
         self.recieveserver.select('Inbox')
         inbox_emails = []
         messages_to_fetch = ','.join(self._get_uids()[start:start+amount])
-        fetch_list = self.recieveserver.uid('fetch', messages_to_fetch,'(RFC822)')
+        fetch_list = self.recieveserver.uid('fetch',
+                                            messages_to_fetch,
+                                            '(RFC822)')
         for each_email in fetch_list[1]:
             if(len(each_email) == 1):
                 continue
